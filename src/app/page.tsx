@@ -17,6 +17,14 @@ import { DownloadOverlay } from "@/components/DownloadOverlay";
 import { AnnotatedFrame } from "@/components/AnnotatedFrame";
 import { SuggestionChips } from "@/components/SuggestionChips";
 import { Hud } from "@/components/Hud";
+import { FrameManager } from "@/engines/vision/frame-manager";
+import { captureFrame } from "@/engines/vision/frame-capture";
+import { screenToFrame, cropRegion } from "@/engines/vision/region-selector";
+import type { RegionSelection } from "@/engines/vision/vision-types";
+import { SceneGraph } from "@/engines/context/scene-graph";
+import { ObservationStore } from "@/engines/context/observation-store";
+import { saveScene } from "@/storage/indexeddb/scene-repository";
+import { saveObservation } from "@/storage/indexeddb/observation-repository";
 
 const MODE_LABEL: Record<LumenMode, string> = { explore: "Explore", learn: "Learn", fix: "Do / Fix" };
 
@@ -24,6 +32,15 @@ export default function LumenApp() {
   const engineRef = useRef<AiEngine | null>(null);
   if (!engineRef.current) engineRef.current = new AiEngine();
   const engine = engineRef.current;
+
+  // Vision/context engines (persist across renders)
+  const frameManagerRef = useRef<FrameManager | null>(null);
+  if (!frameManagerRef.current) frameManagerRef.current = new FrameManager(3000, 10);
+  const sceneGraphRef = useRef<SceneGraph | null>(null);
+  if (!sceneGraphRef.current) sceneGraphRef.current = new SceneGraph();
+  const observationStoreRef = useRef<ObservationStore | null>(null);
+  if (!observationStoreRef.current) observationStoreRef.current = new ObservationStore();
+  const sessionIdRef = useRef<string>("");
 
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [phase, setPhase] = useState<"welcome" | "session">("welcome");
@@ -33,6 +50,7 @@ export default function LumenApp() {
   const [caption, setCaption] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [frozen, setFrozen] = useState<string | null>(null);
+  const [selection, setSelection] = useState<RegionSelection | null>(null);
   const [ambient, setAmbient] = useState(false);
   const [download, setDownload] = useState({ open: false, progress: 0, note: "", error: null as string | null });
 
@@ -47,6 +65,8 @@ export default function LumenApp() {
   statusRef.current = status;
   const frozenRef = useRef<string | null>(null);
   frozenRef.current = frozen;
+  const selectionRef = useRef<RegionSelection | null>(null);
+  selectionRef.current = selection;
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -56,19 +76,33 @@ export default function LumenApp() {
 
   /* --- one conversational turn ---------------------------------------- */
   const runTurn = useCallback(
-    async (utterance: string, opts?: { image?: string; fresh?: boolean; noFreeze?: boolean }) => {
+    async (
+      utterance: string,
+      opts?: {
+        image?: string;
+        fresh?: boolean;
+        noFreeze?: boolean;
+        frameHash?: string;
+        selection?: RegionSelection;
+      }
+    ) => {
       tts.cancel();
+      const fm = frameManagerRef.current!;
+      const sg = sceneGraphRef.current!;
+      const os = observationStoreRef.current!;
       const s = statusRef.current;
       const canSee = s?.cloudConfigured || !s?.localEnabled;
-      // Flow model: while a snapshot is frozen, follow-ups discuss THAT snapshot.
-      // A fresh scan (Analyse / "New scan") grabs a new live frame; otherwise we
-      // reuse the frozen frame, or capture live if nothing is frozen yet.
       const freshFrame = canSee && camera.status === "live" ? camera.capture() ?? undefined : undefined;
       const frozenNow = frozenRef.current;
-      const imageDataUrl = opts?.image ?? (opts?.fresh ? freshFrame : frozenNow ?? freshFrame);
 
-      // Show the frame we're reasoning about (freeze it) when it's a new one.
-      // Ambient glances pass noFreeze so the live view isn't interrupted.
+      // A selection comes either explicitly (new tap) or persists from an active
+      // Point-and-Ask so follow-ups keep discussing that region.
+      const selection = opts?.selection ?? (selectionRef.current ?? undefined);
+
+      // Context frame: fresh for a new scan/selection, else reuse the frozen one.
+      const imageDataUrl =
+        opts?.image ?? (opts?.fresh || opts?.selection ? freshFrame : frozenNow ?? freshFrame);
+
       if (imageDataUrl) {
         setState("OBSERVING");
         if (!opts?.noFreeze && imageDataUrl !== frozenNow) setFrozen(imageDataUrl);
@@ -76,19 +110,40 @@ export default function LumenApp() {
 
       setState("THINKING");
       historyRef.current.push({ role: "user", text: utterance });
+
+      const signal = fm.begin(opts?.frameHash);
+      const myController = fm.controller;
       try {
-        const { response: res } = await engine.respond({
-          mode: modeRef.current,
-          utterance,
-          imageDataUrl,
-          history: historyRef.current.slice(-6),
-        });
+        const { response: res } = await engine.respond(
+          {
+            mode: modeRef.current,
+            utterance,
+            imageDataUrl,
+            selection: selection
+              ? { cropDataUrl: selection.cropDataUrl, point: selection.point }
+              : undefined,
+            history: historyRef.current.slice(-6),
+          },
+          signal
+        );
         setResponse(res);
         setStatus({ ...engine.status });
         historyRef.current.push({ role: "assistant", text: res.message });
         setCaption(res.message);
-        // Don't auto-open the panel (it buries the camera). For guided tasks it's
-        // useful, so only auto-open in fix mode; otherwise the Layers button pulses.
+
+        // Fold the result into the scene graph + observation store, then persist.
+        sg.ingest(res, selection?.box);
+        const obs = os.add({
+          sessionId: sessionIdRef.current,
+          timestamp: Date.now(),
+          mode: modeRef.current,
+          utterance,
+          message: res.message,
+          labels: (res.boxes ?? []).map((b) => b.label),
+        });
+        void saveScene(sessionIdRef.current, sg.snapshot());
+        void saveObservation(obs);
+
         if (modeRef.current === "fix" && res.task_update?.steps.length) setPanelOpen(true);
 
         const guiding = modeRef.current === "fix";
@@ -96,8 +151,12 @@ export default function LumenApp() {
         tts.speak(res.speech_text, () => setState(guiding ? "GUIDING" : "IDLE"));
         if (!tts.supported) setState(guiding ? "GUIDING" : "IDLE");
       } catch (e) {
+        // A superseded/cancelled request is not an error — just stop quietly.
+        if ((e as Error)?.name === "AbortError" || signal.aborted) return;
         setCaption((e as Error)?.message || "Something went wrong.");
         setState("ERROR");
+      } finally {
+        if (fm.controller === myController) fm.end();
       }
     },
     [camera, engine, tts]
@@ -130,20 +189,26 @@ export default function LumenApp() {
     if (recog.listening) setState("LISTENING");
   }, [recog.listening]);
 
-  /* --- ambient "it's alive" mode: glance periodically, speak if noteworthy -- */
+  /* --- ambient "it's alive" mode: glance via the frame pipeline ---------- */
   useEffect(() => {
     if (!ambient || phase !== "session") return;
     const id = setInterval(() => {
-      // Only glance when idle, not mid-interaction, and not showing a snapshot.
-      if ((stateRef.current === "IDLE" || stateRef.current === "GUIDING") && !frozenRef.current) {
-        runTurnRef.current(
-          "Glance at the scene. In ONE short sentence, note the single most interesting or relevant thing you notice. If nothing is noteworthy, keep it very brief.",
-          { fresh: true, noFreeze: true }
-        );
-      }
-    }, 15000);
+      const fm = frameManagerRef.current!;
+      const video = camera.videoRef.current;
+      if (!video) return;
+      // Only glance when idle, not mid-interaction, not showing a snapshot,
+      // respecting cooldown, and skipping near-duplicate frames.
+      if (stateRef.current !== "IDLE" && stateRef.current !== "GUIDING") return;
+      if (frozenRef.current || !fm.canRun()) return;
+      const frame = captureFrame(video);
+      if (!frame || fm.isDuplicate(frame.hash)) return;
+      runTurnRef.current(
+        "Glance at the scene. In ONE short sentence, note the single most interesting or relevant thing you notice.",
+        { image: frame.dataUrl, noFreeze: true, frameHash: frame.hash }
+      );
+    }, 7000);
     return () => clearInterval(id);
-  }, [ambient, phase]);
+  }, [ambient, phase, camera]);
 
   /* --- session lifecycle ---------------------------------------------- */
   const startSession = useCallback(
@@ -152,7 +217,13 @@ export default function LumenApp() {
       setPhase("session");
       setResponse(null);
       setCaption("");
+      setFrozen(null);
+      setSelection(null);
       historyRef.current = [];
+      sessionIdRef.current = `s_${Date.now().toString(36)}`;
+      sceneGraphRef.current?.clear();
+      observationStoreRef.current?.clear();
+      frameManagerRef.current?.cancel();
       camera.start();
       tts.preloadVoice(); // begin downloading the on-device voice model
       setState("IDLE");
@@ -164,11 +235,33 @@ export default function LumenApp() {
     tts.cancel();
     recog.stop();
     camera.stop();
+    frameManagerRef.current?.cancel();
     setPhase("welcome");
     setState("IDLE");
     setPanelOpen(false);
     setFrozen(null);
+    setSelection(null);
   }, [camera, tts, recog]);
+
+  /* --- Point-and-Ask: tap the camera to select & ask about a region ----- */
+  const onCanvasTap = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const video = camera.videoRef.current;
+      if (!video || camera.status !== "live") return;
+      const pt = screenToFrame(video, e.clientX, e.clientY, camera.facing === "user");
+      if (!pt) return;
+      const sel = cropRegion(video, pt);
+      if (!sel) return;
+      const full = camera.capture() ?? undefined;
+      setSelection(sel);
+      if (full) setFrozen(full);
+      runTurnRef.current("What is this? Identify and explain this specific part.", {
+        selection: sel,
+        image: full,
+      });
+    },
+    [camera]
+  );
 
   const onMic = useCallback(() => {
     if (recog.listening) {
@@ -249,17 +342,30 @@ export default function LumenApp() {
       {/* vignette for legibility */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_80%_at_50%_-10%,transparent_40%,rgba(5,6,10,0.55))]" />
 
+      {/* Point-and-Ask: tap anywhere on the live camera to select a region */}
+      {live && camera.status === "live" && !frozen && (
+        <div
+          className="absolute inset-0 z-[8]"
+          onPointerDown={onCanvasTap}
+          aria-label="Tap to ask about a region"
+        />
+      )}
+
       {/* futuristic HUD frame */}
       {live && <Hud state={state} model="GEMMA-4 · LUMEN" />}
 
-      {/* analysed frame with Gemma's object labels drawn on it */}
+      {/* analysed frame with Gemma's object labels (and tapped region) drawn on it */}
       {frozen && (
         <AnnotatedFrame
           src={frozen}
           boxes={response?.boxes ?? []}
+          selection={selection}
           analysing={state === "OBSERVING" || state === "THINKING"}
           onTapBox={drillInto}
-          onResume={() => setFrozen(null)}
+          onResume={() => {
+            setFrozen(null);
+            setSelection(null);
+          }}
         />
       )}
 
@@ -410,7 +516,10 @@ export default function LumenApp() {
         canSwitchCamera={camera.hasMultipleCameras}
         hasVisual={!!(response?.visual || response?.task_update?.steps.length)}
         onMic={onMic}
-        onAnalyse={() => runTurnRef.current("What am I looking at? Identify and label the key objects and explain.", { fresh: true })}
+        onAnalyse={() => {
+          setSelection(null);
+          runTurnRef.current("What am I looking at? Identify and label the key objects and explain.", { fresh: true });
+        }}
         onToggleVisual={() => setPanelOpen((o) => !o)}
         onPauseResume={onPauseResume}
         onSwitchCamera={camera.switchCamera}

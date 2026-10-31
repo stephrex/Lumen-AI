@@ -87,6 +87,21 @@ export const DetectedBox = z.object({
 });
 export type DetectedBox = z.infer<typeof DetectedBox>;
 
+export const SceneRelationship = z.object({
+  from: z.string(),
+  to: z.string(),
+  kind: z.enum([
+    "connected_to",
+    "part_of",
+    "located_near",
+    "attached_to",
+    "contains",
+    "interacts_with",
+  ]),
+  note: z.string().optional(),
+});
+export type SceneRelationship = z.infer<typeof SceneRelationship>;
+
 export const Safety = z.object({
   level: z.enum(["none", "caution", "danger"]).default("none"),
   message: z.string().optional(),
@@ -101,6 +116,7 @@ export const AssistantResponse = z.object({
   next_action: z.string().optional(),
   visual: Visual.optional(),
   task_update: TaskUpdate.optional(),
+  relationships: z.array(SceneRelationship).max(20).default([]),
   safety: Safety.default({ level: "none" }),
   processing_mode: ProcessingMode,
 });
@@ -113,6 +129,8 @@ export interface AssistantRequest {
   utterance: string;
   /** JPEG data URL of the current frame, when the user requested analysis. */
   imageDataUrl?: string;
+  /** Point-and-Ask: a cropped region the user tapped, plus its normalised point. */
+  selection?: { cropDataUrl: string; point: { x: number; y: number } };
   /** Rolling short history for context. */
   history?: { role: "user" | "assistant"; text: string }[];
 }

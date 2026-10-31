@@ -51,6 +51,17 @@ const DIR = process.argv[2] || ".";
     await page.waitForTimeout(1500);
     await page.screenshot({ path: DIR + "/05-panel.png" });
     console.log("shot panel");
+    // close panel + go back to live, then Point-and-Ask (tap a region)
+    await page.getByRole("button", { name: /close panel/i }).click();
+    await page.waitForTimeout(600);
+    await page.getByRole("button", { name: /live view/i }).click();
+    await page.waitForTimeout(1500);
+    await page.mouse.click(195, 470); // tap a region on the live camera
+    await page.waitForTimeout(2500);
+    await page.screenshot({ path: DIR + "/06-pointask-thinking.png" });
+    await page.waitForTimeout(7000);
+    await page.screenshot({ path: DIR + "/07-pointask-answer.png" });
+    console.log("shot point-and-ask");
   } catch (e) {
     console.log("analyse failed:", e.message.slice(0, 160));
   }

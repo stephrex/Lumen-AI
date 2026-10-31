@@ -68,10 +68,10 @@ export class AiEngine {
   }
 
   private route(req: AssistantRequest): AssistantProvider {
-    const hasImage = !!req.imageDataUrl;
+    // Point-and-Ask and image turns need vision → cloud if available, else demo.
+    const hasImage = !!req.imageDataUrl || !!req.selection;
 
     if (hasImage) {
-      // Only cloud has real vision today; demo can stand in visually.
       if (this.status.cloudConfigured) return this.cloud;
       return this.demo;
     }
@@ -82,14 +82,17 @@ export class AiEngine {
   }
 
   async respond(
-    req: AssistantRequest
+    req: AssistantRequest,
+    signal?: AbortSignal
   ): Promise<{ response: AssistantResponse; provider: AssistantProvider }> {
     const provider = this.route(req);
     try {
-      const response = await provider.respond(req);
+      const response = await provider.respond(req, signal);
       return { response, provider };
     } catch (err) {
-      // Never hard-fail a demo: fall back to the demo provider, labelled honestly.
+      // A cancelled request is not a failure — propagate so the UI can ignore it.
+      if (signal?.aborted || (err as Error)?.name === "AbortError") throw err;
+      // Never hard-fail: fall back to the demo provider, labelled honestly.
       if (provider.id !== "demo") {
         const response = await this.demo.respond(req);
         return { response, provider: this.demo };

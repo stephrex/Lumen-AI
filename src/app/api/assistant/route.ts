@@ -117,19 +117,29 @@ export async function POST(request: Request) {
     `${utterance}\n\nAnswer as the LUMEN assistant. Include a "visual" diagram when it ` +
     `genuinely aids understanding. Keep speech_text natural and concise.`;
 
+  const selectionNote = req.selection
+    ? `The FIRST image is the specific region the user tapped (near ${Math.round(
+        req.selection.point.x * 100
+      )}% across, ${Math.round(
+        req.selection.point.y * 100
+      )}% down the scene). Focus your answer on THAT region/object; the next image is the full scene for context. Say clearly if you're unsure what the region shows.`
+    : "";
+
   try {
     let modelText: string;
 
     if (provider === "anthropic") {
       const content: unknown[] = [];
-      if (req.imageDataUrl) {
-        const img = dataUrlToParts(req.imageDataUrl);
-        if (img)
-          content.push({
-            type: "image",
-            source: { type: "base64", media_type: img.mime, data: img.base64 },
-          });
+      const pushImg = (dataUrl?: string) => {
+        if (!dataUrl) return;
+        const img = dataUrlToParts(dataUrl);
+        if (img) content.push({ type: "image", source: { type: "base64", media_type: img.mime, data: img.base64 } });
+      };
+      if (req.selection?.cropDataUrl) {
+        pushImg(req.selection.cropDataUrl); // tapped region first
+        content.push({ type: "text", text: selectionNote });
       }
+      pushImg(req.imageDataUrl); // full scene (context)
       content.push({ type: "text", text: anthropicText });
 
       const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -152,10 +162,16 @@ export async function POST(request: Request) {
     } else {
       // gemini / gemma — both served here, both support controlled generation.
       const parts: unknown[] = [{ text: `${system}\n\n${geminiText}` }];
-      if (req.imageDataUrl) {
-        const img = dataUrlToParts(req.imageDataUrl);
+      const pushInline = (dataUrl?: string) => {
+        if (!dataUrl) return;
+        const img = dataUrlToParts(dataUrl);
         if (img) parts.push({ inline_data: { mime_type: img.mime, data: img.base64 } });
+      };
+      if (req.selection?.cropDataUrl) {
+        pushInline(req.selection.cropDataUrl); // tapped region first
+        parts.push({ text: selectionNote });
       }
+      pushInline(req.imageDataUrl); // full scene (context)
       // responseSchema constrains decoding to valid JSON — no reasoning preamble,
       // which is what makes the Gemma "thinking" model fast and reliable here.
       // Higher temperature + topP/topK avoids the repetition loops this model

@@ -16,11 +16,12 @@ export class CloudProvider implements AssistantProvider {
     processingMode: "cloud",
   };
 
-  async respond(req: AssistantRequest): Promise<AssistantResponse> {
+  async respond(req: AssistantRequest, signal?: AbortSignal): Promise<AssistantResponse> {
     const res = await fetch("/api/assistant", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(req),
+      signal,
     });
 
     if (!res.ok) {

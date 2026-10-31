@@ -73,7 +73,8 @@ export class LocalGemmaProvider implements AssistantProvider {
     }
   }
 
-  async respond(req: AssistantRequest): Promise<AssistantResponse> {
+  async respond(req: AssistantRequest, _signal?: AbortSignal): Promise<AssistantResponse> {
+    void _signal;
     if (!this.llm) await this.init();
     if (!this.llm) throw new Error("Local model not initialised");
 
@@ -103,6 +104,7 @@ export class LocalGemmaProvider implements AssistantProvider {
         speech_text: text,
         observations: [],
         boxes: [],
+        relationships: [],
         safety: { level: "none" },
         processing_mode: "local",
       };

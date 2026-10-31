@@ -80,6 +80,7 @@ function pick(req: AssistantRequest): AssistantResponse {
         ? ["I can see a laptop and what looks like a charging port on the left edge."]
         : [],
       boxes: [],
+      relationships: [],
       confidence: 0.4,
       next_action: "Tell me whether the charger LED is on.",
       visual: laptopCharging,
@@ -109,6 +110,7 @@ function pick(req: AssistantRequest): AssistantResponse {
         "A battery pushes current around the loop. The resistor limits the current so the LED is protected.",
       observations: sawImage ? ["There appear to be components on a breadboard."] : [],
       boxes: [],
+      relationships: [],
       confidence: 0.5,
       next_action: "Ask 'what happens if I remove the resistor?'",
       visual: circuit,
@@ -127,6 +129,7 @@ function pick(req: AssistantRequest): AssistantResponse {
       : "Point the camera at something and tap Analyse, or ask me a question.",
     observations: sawImage ? ["A single main object centred in frame."] : [],
     boxes: [],
+    relationships: [],
     confidence: sawImage ? 0.45 : undefined,
     next_action: "Try: 'explain that' or 'show me how it works'.",
     visual: sawImage ? components : undefined,
@@ -144,7 +147,8 @@ export class DemoProvider implements AssistantProvider {
     processingMode: "demo",
   };
 
-  async respond(req: AssistantRequest): Promise<AssistantResponse> {
+  async respond(req: AssistantRequest, _signal?: AbortSignal): Promise<AssistantResponse> {
+    void _signal;
     // Small latency so state transitions (THINKING → SPEAKING) are visible.
     await new Promise((r) => setTimeout(r, 650));
     return pick(req);

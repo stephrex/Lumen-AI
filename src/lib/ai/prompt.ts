@@ -40,6 +40,10 @@ Rules:
   the y field (0=top). This shows the components pulled apart along an assembly axis.
 - Be concise: "message" is at most 2 short sentences; "speech_text" is ONE short,
   natural spoken sentence. Brevity keeps the voice fast and responsive.
+- When you can clearly tell how parts connect, fill "relationships" using the
+  labels you used in boxes/observations (kinds: connected_to, part_of,
+  located_near, attached_to, contains, interacts_with). Only when it's evident
+  from the image — never infer a physical relationship from mere proximity.
 - When an image is provided, DETECT the key objects and fill "boxes": for each
   important thing you can see, give a short label and a bounding box as
   [ymin, xmin, ymax, xmax] normalised 0-1000 (Gemma detection format). Label the
@@ -154,6 +158,22 @@ export const GEMINI_RESPONSE_SCHEMA = {
           },
         },
         note: { type: "string" },
+      },
+    },
+    relationships: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          from: { type: "string" },
+          to: { type: "string" },
+          kind: {
+            type: "string",
+            enum: ["connected_to", "part_of", "located_near", "attached_to", "contains", "interacts_with"],
+          },
+          note: { type: "string" },
+        },
+        required: ["from", "to", "kind"],
       },
     },
     safety: {

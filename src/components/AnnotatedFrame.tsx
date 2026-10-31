@@ -2,6 +2,7 @@
 
 import { Camera } from "lucide-react";
 import type { DetectedBox } from "@/types/assistant";
+import type { RegionSelection } from "@/engines/vision/vision-types";
 
 /* Shows the exact frame LUMEN analysed, with Gemma's detected objects drawn as
    labelled boxes — the "it sees and points at things" moment. Boxes use Gemma's
@@ -10,12 +11,14 @@ import type { DetectedBox } from "@/types/assistant";
 export function AnnotatedFrame({
   src,
   boxes,
+  selection,
   analysing,
   onTapBox,
   onResume,
 }: {
   src: string;
   boxes: DetectedBox[];
+  selection?: RegionSelection | null;
   analysing: boolean;
   onTapBox: (label: string) => void;
   onResume: () => void;
@@ -61,6 +64,31 @@ export function AnnotatedFrame({
             </button>
           );
         })}
+
+        {/* Point-and-Ask selection: crop box + crosshair at the tapped point */}
+        {selection && (
+          <>
+            <span
+              className="absolute rounded-md border-2 border-dashed border-[var(--accent-2)]"
+              style={{
+                left: `${selection.box.x * 100}%`,
+                top: `${selection.box.y * 100}%`,
+                width: `${selection.box.w * 100}%`,
+                height: `${selection.box.h * 100}%`,
+                boxShadow: "0 0 24px -4px var(--accent-2)",
+                animation: "box-in 0.35s ease both",
+              }}
+            />
+            <span
+              className="absolute h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
+              style={{
+                left: `${selection.point.x * 100}%`,
+                top: `${selection.point.y * 100}%`,
+                boxShadow: "0 0 16px 2px rgba(255,255,255,0.6)",
+              }}
+            />
+          </>
+        )}
       </div>
 
       {/* resume live camera — centred under the header, clear of the End-X */}

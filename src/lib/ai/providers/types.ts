@@ -23,8 +23,9 @@ export interface AssistantProvider {
   /** Lazy, idempotent. Loads runtimes/models. Reports progress 0..1. */
   init?(onProgress?: (p: number, note: string) => void): Promise<void>;
 
-  /** One conversational turn. Must resolve to schema-valid data. */
-  respond(req: AssistantRequest): Promise<AssistantResponse>;
+  /** One conversational turn. Must resolve to schema-valid data.
+   *  `signal` allows the caller to cancel an in-flight request. */
+  respond(req: AssistantRequest, signal?: AbortSignal): Promise<AssistantResponse>;
 
   /** Release heavy resources (GPU buffers, model handles). */
   dispose?(): void;
