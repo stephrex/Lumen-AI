@@ -12,6 +12,26 @@ export function VoiceOrb({ state, size = 120 }: { state: LumenState; size?: numb
 
   return (
     <div className="relative grid place-items-center" style={{ width: size, height: size }}>
+      {/* persistent orbit rings so it always feels alive */}
+      <span
+        className="absolute rounded-full"
+        style={{
+          width: size * 0.98,
+          height: size * 0.98,
+          border: `1px solid ${tone}`,
+          opacity: 0.18,
+        }}
+      />
+      <span
+        className="absolute rounded-full"
+        style={{
+          width: size * 0.78,
+          height: size * 0.78,
+          border: `1px solid ${tone}`,
+          opacity: 0.28,
+        }}
+      />
+
       {/* expanding pulse rings */}
       {active &&
         [0, 0.6, 1.2].map((delay, i) => (

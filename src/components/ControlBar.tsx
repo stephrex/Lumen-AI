@@ -57,12 +57,18 @@ export function ControlBar(p: ControlBarProps) {
 
         {/* visual panel */}
         <button
-          className="ctrl btn-ghost disabled:opacity-30"
+          className="ctrl btn-ghost relative disabled:opacity-30"
           onClick={p.onToggleVisual}
           disabled={!p.hasVisual}
           aria-label="Show visual explanation"
         >
           <Layers size={20} className={p.hasVisual ? "text-accent" : ""} />
+          {p.hasVisual && (
+            <span
+              className="absolute right-3 top-3 h-2 w-2 rounded-full bg-accent"
+              style={{ animation: "caret-blink 1.4s infinite" }}
+            />
+          )}
         </button>
 
         {/* pause / resume */}

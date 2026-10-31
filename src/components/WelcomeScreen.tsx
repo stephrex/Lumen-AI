@@ -102,7 +102,7 @@ export function WelcomeScreen({
       </section>
 
       {/* CTA */}
-      <section className="sticky bottom-0 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
+      <section className="sticky bottom-0 px-5 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-4">
         <button
           onClick={() => onStart(mode)}
           className="btn btn-primary h-14 w-full text-base"
