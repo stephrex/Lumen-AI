@@ -1,0 +1,22 @@
+# Render blueprint for LUMEN (https://render.com)
+# Deploy: New + → Blueprint → connect stephrex/Lumen-AI → it reads this file.
+# Then set GEMINI_API_KEY in the dashboard (it's marked secret below).
+services:
+  - type: web
+    name: lumen
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22.14.0"
+      - key: GEMMA_PROVIDER
+        value: gemini
+      - key: GEMMA_MODEL
+        value: gemma-4-26b-a4b-it
+      # Set this in the Render dashboard (kept secret, never in git):
+      - key: GEMINI_API_KEY
+        sync: false

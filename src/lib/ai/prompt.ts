@@ -38,7 +38,8 @@ Rules:
 - For a physical device or assembly (laptop, motor, appliance, gadget), prefer an
   "exploded_view": list its main internal parts as nodes ordered top-to-bottom by
   the y field (0=top). This shows the components pulled apart along an assembly axis.
-- Keep speech_text shorter and more natural than message.
+- Be concise: "message" is at most 2 short sentences; "speech_text" is ONE short,
+  natural spoken sentence. Brevity keeps the voice fast and responsive.
 - When an image is provided, DETECT the key objects and fill "boxes": for each
   important thing you can see, give a short label and a bounding box as
   [ymin, xmin, ymax, xmax] normalised 0-1000 (Gemma detection format). Label the

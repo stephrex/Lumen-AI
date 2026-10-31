@@ -30,6 +30,8 @@ export function useSpeechSynthesis() {
   const ctxRef = useRef<AudioContext | null>(null);
   const srcRef = useRef<AudioBufferSourceNode | null>(null);
   const neuralOkRef = useRef(true);
+  const [naturalVoice, setNaturalVoiceState] = useState(true);
+  const naturalRef = useRef(true);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -110,10 +112,10 @@ export function useSpeechSynthesis() {
         return;
       }
       const ctx = ctxRef.current;
-      // Use the on-device Kokoro voice once it's loaded; until then (or on any
-      // failure) speak instantly with the browser voice so there's no dead air.
-      if (!neuralOkRef.current || !ctx || !kokoroReady()) {
-        if (neuralOkRef.current && !kokoroReady()) {
+      // Fast mode (or until Kokoro is loaded / on any failure) = instant browser
+      // voice, no dead air. Natural mode uses on-device Kokoro once ready.
+      if (!naturalRef.current || !neuralOkRef.current || !ctx || !kokoroReady()) {
+        if (naturalRef.current && neuralOkRef.current && !kokoroReady()) {
           loadKokoro().catch(() => {
             neuralOkRef.current = false;
           });
@@ -146,12 +148,17 @@ export function useSpeechSynthesis() {
 
   /** Begin downloading the on-device voice model (call on a user gesture). */
   const preloadVoice = useCallback(() => {
-    loadKokoro().catch(() => {
-      neuralOkRef.current = false;
-    });
+    if (naturalRef.current) loadKokoro().catch(() => { neuralOkRef.current = false; });
   }, []);
 
-  return { speak, cancel, speaking, supported, preloadVoice };
+  /** Toggle between fast (browser) and natural (on-device Kokoro) voice. */
+  const setNaturalVoice = useCallback((v: boolean) => {
+    naturalRef.current = v;
+    setNaturalVoiceState(v);
+    if (v) loadKokoro().catch(() => { neuralOkRef.current = false; });
+  }, []);
+
+  return { speak, cancel, speaking, supported, preloadVoice, naturalVoice, setNaturalVoice };
 }
 
 /* --- Speech recognition (voice input) ----------------------------------- */

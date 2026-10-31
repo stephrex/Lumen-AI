@@ -165,7 +165,7 @@ export async function POST(request: Request) {
         temperature: 0.9,
         topP: 0.95,
         topK: 40,
-        maxOutputTokens: 800,
+        maxOutputTokens: 600,
         responseMimeType: "application/json",
         responseSchema: GEMINI_RESPONSE_SCHEMA,
       };

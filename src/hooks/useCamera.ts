@@ -111,7 +111,7 @@ export function useCamera(): UseCamera {
     await begin(next);
   }, [facing, begin]);
 
-  const capture = useCallback((maxDim = 768): string | null => {
+  const capture = useCallback((maxDim = 512): string | null => {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return null;
     const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));

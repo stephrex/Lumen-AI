@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CameraOff, AlertTriangle, Loader2, Eye, Languages, X } from "lucide-react";
+import { CameraOff, AlertTriangle, Loader2, Eye, Languages, X, AudioLines, Zap } from "lucide-react";
 import { AiEngine, type EngineStatus } from "@/lib/ai/engine";
 import type { AssistantResponse, LumenMode } from "@/types/assistant";
 import type { LumenState } from "@/lib/states";
@@ -346,6 +346,18 @@ export default function LumenApp() {
             disabled={state === "THINKING" || state === "OBSERVING"}
           >
             <Languages size={18} />
+          </button>
+          <button
+            onClick={() => tts.setNaturalVoice(!tts.naturalVoice)}
+            aria-label="Toggle voice: fast or natural"
+            className="ctrl !h-11 !w-11 btn-ghost"
+            title={tts.naturalVoice ? "Natural voice (on-device)" : "Fast voice"}
+          >
+            {tts.naturalVoice ? (
+              <AudioLines size={18} className="text-accent" />
+            ) : (
+              <Zap size={18} className="text-[var(--warn)]" />
+            )}
           </button>
         </div>
       )}
