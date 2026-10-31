@@ -21,3 +21,18 @@ export const MODEL_CONFIG = {
     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-genai/wasm",
   maxTokens: 1024,
 } as const;
+
+/* On-device specialist vision models (MediaPipe Tasks Vision). All downloaded
+   at runtime from Google's model CDN; everything degrades to Gemma-only vision
+   if these can't load (offline / blocked network / unsupported device). */
+export const MEDIAPIPE_VISION = {
+  wasmBase:
+    process.env.NEXT_PUBLIC_MEDIAPIPE_VISION_WASM ||
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm",
+  objectDetector:
+    process.env.NEXT_PUBLIC_MP_OBJECT_DETECTOR ||
+    "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite",
+  interactiveSegmenter:
+    process.env.NEXT_PUBLIC_MP_SEGMENTER ||
+    "https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite",
+} as const;

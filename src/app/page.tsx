@@ -20,7 +20,12 @@ import { Hud } from "@/components/Hud";
 import { FrameManager } from "@/engines/vision/frame-manager";
 import { captureFrame } from "@/engines/vision/frame-capture";
 import { screenToFrame, cropRegion } from "@/engines/vision/region-selector";
+import { loadImage } from "@/engines/vision/image-preprocessor";
 import type { RegionSelection } from "@/engines/vision/vision-types";
+import { MediaPipeVisionProvider } from "@/engines/vision/providers/mediapipe-vision-provider";
+import { loadScene } from "@/storage/indexeddb/scene-repository";
+import { listObservations } from "@/storage/indexeddb/observation-repository";
+import type { SceneSnapshot } from "@/engines/context/scene-graph";
 import { SceneGraph } from "@/engines/context/scene-graph";
 import { ObservationStore } from "@/engines/context/observation-store";
 import { saveScene } from "@/storage/indexeddb/scene-repository";
@@ -40,6 +45,8 @@ export default function LumenApp() {
   if (!sceneGraphRef.current) sceneGraphRef.current = new SceneGraph();
   const observationStoreRef = useRef<ObservationStore | null>(null);
   if (!observationStoreRef.current) observationStoreRef.current = new ObservationStore();
+  const visionProviderRef = useRef<MediaPipeVisionProvider | null>(null);
+  if (!visionProviderRef.current) visionProviderRef.current = new MediaPipeVisionProvider();
   const sessionIdRef = useRef<string>("");
 
   const [status, setStatus] = useState<EngineStatus | null>(null);
@@ -51,7 +58,9 @@ export default function LumenApp() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [frozen, setFrozen] = useState<string | null>(null);
   const [selection, setSelection] = useState<RegionSelection | null>(null);
+  const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
   const [ambient, setAmbient] = useState(false);
+  const [resume, setResume] = useState<{ sessionId: string; count: number; snapshot: SceneSnapshot } | null>(null);
   const [download, setDownload] = useState({ open: false, progress: 0, note: "", error: null as string | null });
 
   const camera = useCamera();
@@ -73,6 +82,29 @@ export default function LumenApp() {
   useEffect(() => {
     engine.prepare().then(setStatus);
   }, [engine]);
+
+  /* --- restore-on-return: offer to resume the last persisted session ----- */
+  const refreshResume = useCallback(async () => {
+    try {
+      const last = localStorage.getItem("lumen:lastSession");
+      if (!last) {
+        setResume(null);
+        return;
+      }
+      const snap = await loadScene(last);
+      if (snap && snap.objects.length > 0) {
+        setResume({ sessionId: last, count: snap.objects.length, snapshot: snap });
+      } else {
+        setResume(null);
+      }
+    } catch {
+      setResume(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshResume();
+  }, [refreshResume]);
 
   /* --- one conversational turn ---------------------------------------- */
   const runTurn = useCallback(
@@ -212,18 +244,35 @@ export default function LumenApp() {
 
   /* --- session lifecycle ---------------------------------------------- */
   const startSession = useCallback(
-    (m: LumenMode) => {
+    (m: LumenMode, resumeData?: { sessionId: string; snapshot: SceneSnapshot }) => {
       setMode(m);
       setPhase("session");
       setResponse(null);
       setCaption("");
       setFrozen(null);
       setSelection(null);
+      setMaskDataUrl(null);
       historyRef.current = [];
-      sessionIdRef.current = `s_${Date.now().toString(36)}`;
-      sceneGraphRef.current?.clear();
-      observationStoreRef.current?.clear();
       frameManagerRef.current?.cancel();
+
+      if (resumeData) {
+        // Restore-on-return: continue a prior session with its scene graph.
+        sessionIdRef.current = resumeData.sessionId;
+        sceneGraphRef.current?.load(resumeData.snapshot);
+        listObservations(resumeData.sessionId)
+          .then((obs) => observationStoreRef.current?.load(obs))
+          .catch(() => {});
+      } else {
+        sessionIdRef.current = `s_${Date.now().toString(36)}`;
+        sceneGraphRef.current?.clear();
+        observationStoreRef.current?.clear();
+      }
+      try {
+        localStorage.setItem("lumen:lastSession", sessionIdRef.current);
+      } catch {
+        /* ignore */
+      }
+
       camera.start();
       tts.preloadVoice(); // begin downloading the on-device voice model
       setState("IDLE");
@@ -241,7 +290,9 @@ export default function LumenApp() {
     setPanelOpen(false);
     setFrozen(null);
     setSelection(null);
-  }, [camera, tts, recog]);
+    setMaskDataUrl(null);
+    void refreshResume();
+  }, [camera, tts, recog, refreshResume]);
 
   /* --- Point-and-Ask: tap the camera to select & ask about a region ----- */
   const onCanvasTap = useCallback(
@@ -254,11 +305,44 @@ export default function LumenApp() {
       if (!sel) return;
       const full = camera.capture() ?? undefined;
       setSelection(sel);
+      setMaskDataUrl(null);
       if (full) setFrozen(full);
+      // Gemma explains the region (primary path)…
       runTurnRef.current("What is this? Identify and explain this specific part.", {
         selection: sel,
         image: full,
       });
+      // …and on-device MediaPipe adds a segmentation highlight + enriches the
+      // scene graph with generic detections (best-effort; silent if unavailable).
+      if (full) {
+        (async () => {
+          try {
+            const vp = visionProviderRef.current!;
+            if (!vp.ready()) await vp.init();
+            const img = await loadImage(full);
+            const w = img.naturalWidth;
+            const h = img.naturalHeight;
+            const seg = await vp.segmentAtPoint?.(img, sel.point, w, h);
+            if (seg?.maskDataUrl) setMaskDataUrl(seg.maskDataUrl);
+            const det = await vp.detect?.(img, w, h);
+            if (det?.detections?.length) {
+              const sg = sceneGraphRef.current!;
+              for (const d of det.detections) {
+                sg.upsertObject({
+                  name: d.label,
+                  confidence: d.score,
+                  region: d.box,
+                  evidence: "observed",
+                  observation: "on-device detection",
+                });
+              }
+              void saveScene(sessionIdRef.current, sg.snapshot());
+            }
+          } catch {
+            /* best-effort — Gemma already answered */
+          }
+        })();
+      }
     },
     [camera]
   );
@@ -318,7 +402,13 @@ export default function LumenApp() {
   if (phase === "welcome") {
     return (
       <>
-        <WelcomeScreen status={status} onStart={startSession} onEnableLocal={enableLocal} />
+        <WelcomeScreen
+          status={status}
+          onStart={startSession}
+          onEnableLocal={enableLocal}
+          resume={resume ? { count: resume.count } : null}
+          onResume={(m) => resume && startSession(m, { sessionId: resume.sessionId, snapshot: resume.snapshot })}
+        />
         <DownloadOverlay
           {...download}
           onCancel={() => setDownload({ open: false, progress: 0, note: "", error: null })}
@@ -360,11 +450,13 @@ export default function LumenApp() {
           src={frozen}
           boxes={response?.boxes ?? []}
           selection={selection}
+          maskDataUrl={maskDataUrl}
           analysing={state === "OBSERVING" || state === "THINKING"}
           onTapBox={drillInto}
           onResume={() => {
             setFrozen(null);
             setSelection(null);
+            setMaskDataUrl(null);
           }}
         />
       )}
@@ -518,6 +610,7 @@ export default function LumenApp() {
         onMic={onMic}
         onAnalyse={() => {
           setSelection(null);
+          setMaskDataUrl(null);
           runTurnRef.current("What am I looking at? Identify and label the key objects and explain.", { fresh: true });
         }}
         onToggleVisual={() => setPanelOpen((o) => !o)}

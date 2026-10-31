@@ -16,10 +16,14 @@ export function WelcomeScreen({
   status,
   onStart,
   onEnableLocal,
+  resume,
+  onResume,
 }: {
   status: EngineStatus | null;
   onStart: (mode: LumenMode) => void;
   onEnableLocal: () => void;
+  resume?: { count: number } | null;
+  onResume?: (mode: LumenMode) => void;
 }) {
   const [mode, setMode] = useState<LumenMode>("explore");
   const caps = status?.capabilities;
@@ -103,6 +107,14 @@ export function WelcomeScreen({
 
       {/* CTA */}
       <section className="sticky bottom-0 px-5 pb-[max(1.75rem,env(safe-area-inset-bottom))] pt-4">
+        {resume && resume.count > 0 && onResume && (
+          <button
+            onClick={() => onResume(mode)}
+            className="btn btn-ghost mb-2.5 h-12 w-full text-sm"
+          >
+            Resume last session · {resume.count} object{resume.count === 1 ? "" : "s"} remembered
+          </button>
+        )}
         <button
           onClick={() => onStart(mode)}
           className="btn btn-primary h-14 w-full text-base"

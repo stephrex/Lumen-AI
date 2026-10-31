@@ -28,6 +28,16 @@ export function frameHash(source: CanvasImageSource, size = 16): string {
   return gray.map((g) => (g > avg ? "1" : "0")).join("");
 }
 
+/** Load a data URL into an HTMLImageElement (for model inputs that need one). */
+export function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("image load failed"));
+    img.src = dataUrl;
+  });
+}
+
 export function hamming(a: string, b: string): number {
   if (!a || !b || a.length !== b.length) return Math.max(a.length, b.length, 1);
   let d = 0;

@@ -12,6 +12,7 @@ export function AnnotatedFrame({
   src,
   boxes,
   selection,
+  maskDataUrl,
   analysing,
   onTapBox,
   onResume,
@@ -19,6 +20,7 @@ export function AnnotatedFrame({
   src: string;
   boxes: DetectedBox[];
   selection?: RegionSelection | null;
+  maskDataUrl?: string | null;
   analysing: boolean;
   onTapBox: (label: string) => void;
   onResume: () => void;
@@ -29,6 +31,17 @@ export function AnnotatedFrame({
       <div className="relative inline-block max-h-full max-w-full">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt="Analysed frame" className="block max-h-dvh w-auto max-w-full" />
+
+        {/* on-device segmentation mask highlight (aligned to the frame) */}
+        {maskDataUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={maskDataUrl}
+            alt=""
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            style={{ animation: "float-up 0.4s ease both", mixBlendMode: "screen" }}
+          />
+        )}
 
         {analysing && <div className="scanline" />}
 
