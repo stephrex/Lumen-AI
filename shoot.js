@@ -46,6 +46,11 @@ const DIR = process.argv[2] || ".";
     await page.waitForTimeout(8000);
     await page.screenshot({ path: DIR + "/04-answer.png" });
     console.log("shot answer");
+    // open the visual explanation panel
+    await page.getByRole("button", { name: /show visual explanation/i }).click();
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: DIR + "/05-panel.png" });
+    console.log("shot panel");
   } catch (e) {
     console.log("analyse failed:", e.message.slice(0, 160));
   }
